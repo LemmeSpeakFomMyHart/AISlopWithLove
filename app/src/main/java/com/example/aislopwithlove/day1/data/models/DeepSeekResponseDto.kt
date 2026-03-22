@@ -7,7 +7,7 @@ data class DeepSeekResponseDto(
     @SerializedName("choices") val choices: List<Choice>
 ) {
     data class Choice(
-        @SerializedName("message") val message: DeepSeekMessageDto,
+        @SerializedName("delta") val message: DeepSeekMessageDto,
         @SerializedName("finish_reason") val finishReason: String
     )
 }

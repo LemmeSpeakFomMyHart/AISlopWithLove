@@ -3,6 +3,9 @@ package com.example.aislopwithlove.day1.data
 import com.example.aislopwithlove.day1.data.models.DeepSeekMessageDto
 import com.example.aislopwithlove.day1.data.models.DeepSeekRequestDto
 import com.example.aislopwithlove.day1.data.models.DeepSeekResponseDto
+import com.example.aislopwithlove.day1.data.parsers.DeepSeekStreamParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -36,7 +39,9 @@ class Repository {
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
-        .create(DeepseekApiService::class.java)
+        .create(DeepSeekApiService::class.java)
+
+    private val streamParser = DeepSeekStreamParser()
 
     suspend fun sendRequest(text: String): DeepSeekResponseDto {
         return deepseekApiService.sendMessage(
@@ -49,5 +54,49 @@ class Repository {
                 )
             )
         )
+    }
+
+    suspend fun sentStreamingRequest(
+        text: String,
+        onChunk: (String) -> Unit,
+        onComplete: () -> Unit,
+    ) {
+        withContext(Dispatchers.IO) {
+            val responseBody = deepseekApiService.sendMessageAndGetStream(
+                DeepSeekRequestDto(
+                    messages = listOf(
+                        DeepSeekMessageDto(
+                            role = DeepSeekMessageDto.Role.USER,
+                            text = text
+                        )
+                    ),
+                    stream = true
+                )
+            )
+
+            responseBody.source().use { source ->
+                val reader = source.buffer
+
+                while (!source.exhausted()) {
+                    val line = reader.readUtf8Line() ?: continue
+
+                    if (line.isNotEmpty()) {
+                        streamParser.parseChunk(line)?.let { chunk ->
+                            chunk.choices.firstOrNull()?.message?.text?.let { content ->
+                                withContext(Dispatchers.Main) {
+                                    onChunk(content)
+                                }
+                            }
+
+                            if (chunk.choices.firstOrNull()?.finishReason != null) {
+                                withContext(Dispatchers.Main) {
+                                    onComplete()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
