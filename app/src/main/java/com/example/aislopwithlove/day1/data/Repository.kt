@@ -99,4 +99,81 @@ class Repository {
             }
         }
     }
+
+    suspend fun sendRequestWithControl(
+        text: String,
+        systemPrompt: String? = null,
+        maxTokens: Int? = null,
+        stopSequences: List<String>? = null
+    ): DeepSeekResponseDto {
+        val messages = buildList {
+            systemPrompt?.let {
+                add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.SYSTEM, text = it))
+            }
+            add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.USER, text = text))
+        }
+
+        return deepseekApiService.sendMessage(
+            DeepSeekRequestDto(
+                messages = messages,
+                maxTokens = maxTokens,
+                stop = stopSequences,
+                temperature = 0.7 // стабильность
+            )
+        )
+    }
+
+
+    suspend fun sendStreamingRequestWithControl(
+        text: String,
+        systemPrompt: String? = null,
+        maxTokens: Int? = null,
+        stopSequences: List<String>? = null,
+        onChunk: (String) -> Unit,
+        onComplete: () -> Unit,
+    ) {
+        withContext(Dispatchers.IO) {
+            val messages = buildList {
+                systemPrompt?.let {
+                    add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.SYSTEM, text = it))
+                }
+                add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.USER, text = text))
+            }
+
+            val responseBody = deepseekApiService.sendMessageAndGetStream(
+                DeepSeekRequestDto(
+                    messages = messages,
+                    stream = true,
+                    maxTokens = maxTokens,
+                    stop = stopSequences,
+                    temperature = 0.7
+                )
+            )
+
+            responseBody.source().use { source ->
+                val reader = source.buffer
+
+                while (!source.exhausted()) {
+                    val line = reader.readUtf8Line() ?: continue
+
+                    if (line.isNotEmpty()) {
+                        streamParser.parseChunk(line)?.let { chunk ->
+                            chunk.choices.firstOrNull()?.message?.text?.let { content ->
+                                withContext(Dispatchers.Main) {
+                                    onChunk(content)
+                                }
+                            }
+
+                            if (chunk.choices.firstOrNull()?.finishReason != null) {
+                                withContext(Dispatchers.Main) {
+                                    onComplete()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 }
