@@ -1,6 +1,6 @@
-package com.example.aislopwithlove.day1.data.parsers
+package com.example.aislopwithlove.data.parsers
 
-import com.example.aislopwithlove.day1.data.models.DeepSeekResponseDto
+import com.example.aislopwithlove.data.models.DeepSeekResponseDto
 import com.google.gson.Gson
 
 class DeepSeekStreamParser {

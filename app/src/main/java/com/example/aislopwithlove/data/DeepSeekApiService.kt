@@ -1,7 +1,7 @@
-package com.example.aislopwithlove.day1.data
+package com.example.aislopwithlove.data
 
-import com.example.aislopwithlove.day1.data.models.DeepSeekRequestDto
-import com.example.aislopwithlove.day1.data.models.DeepSeekResponseDto
+import com.example.aislopwithlove.data.models.DeepSeekRequestDto
+import com.example.aislopwithlove.data.models.DeepSeekResponseDto
 import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.POST
