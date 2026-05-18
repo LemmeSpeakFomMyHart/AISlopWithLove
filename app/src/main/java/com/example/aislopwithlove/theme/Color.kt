@@ -1,4 +1,4 @@
-package com.example.aislopwithlove.day1.theme
+package com.example.aislopwithlove.theme
 
 import androidx.compose.ui.graphics.Color
 

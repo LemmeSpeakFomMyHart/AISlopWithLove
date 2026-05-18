@@ -1,4 +1,4 @@
-package com.example.aislopwithlove.day1.data.models
+package com.example.aislopwithlove.data.models
 
 import com.google.gson.annotations.SerializedName
 
