@@ -41,29 +41,22 @@ class Repository {
         .build()
         .create(DeepSeekApiService::class.java)
 
-    suspend fun sendStreamingRequestWithControl(
+    suspend fun sendStreamingRequestWithTemperature(
         text: String,
-        systemPrompt: String? = null,
-        maxTokens: Int? = null,
-        stopSequences: List<String>? = null,
+        temperature: Double,
         onChunk: (String) -> Unit,
         onComplete: () -> Unit
     ) {
         withContext(Dispatchers.IO) {
-            val messages = buildList {
-                systemPrompt?.let {
-                    add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.SYSTEM, text = it))
-                }
-                add(DeepSeekMessageDto(role = DeepSeekMessageDto.Role.USER, text = text))
-            }
+            val messages = listOf(
+                DeepSeekMessageDto(role = DeepSeekMessageDto.Role.USER, text = text)
+            )
 
             val response = deepseekApiService.sendMessageAndGetStream(
                 DeepSeekRequestDto(
                     messages = messages,
                     stream = true,
-                    maxTokens = maxTokens,
-                    stop = stopSequences,
-                    temperature = 0.7
+                    temperature = temperature
                 )
             )
 
@@ -77,9 +70,7 @@ class Repository {
                     val jsonData = currentLine.removePrefix("data: ").trim()
 
                     if (jsonData == "[DONE]") {
-                        withContext(Dispatchers.Main) {
-                            onComplete()
-                        }
+                        withContext(Dispatchers.Main) { onComplete() }
                         break
                     }
 
@@ -89,13 +80,8 @@ class Repository {
                         val content = responseDto.choices.firstOrNull()?.message?.text
 
                         if (!content.isNullOrEmpty()) {
-                            // Очищаем от битых последовательностей, НО сохраняем \n \r \t
-                            val cleanContent = content
-                                .replace(Regex("[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F]"), "") // убираем control символы, кроме \n \r \t
-                                .replace(Regex("(?<=[а-яА-Яa-zA-Z])[\\p{C}]+(?=[а-яА-Яa-zA-Z])"), "") // убираем битые символы между буквами
-
                             withContext(Dispatchers.Main) {
-                                onChunk(cleanContent)
+                                onChunk(content)
                             }
                         }
                     } catch (e: Exception) {
@@ -103,7 +89,6 @@ class Repository {
                     }
                 }
             }
-
             reader.close()
         }
     }

@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.example.aislopwithlove.data.Repository
@@ -49,8 +50,10 @@ import com.example.aislopwithlove.data.models.DeepSeekMessageDto
 import com.example.aislopwithlove.theme.AISlopWithLoveTheme
 import kotlinx.coroutines.launch
 
-enum class ReasoningMode {
-    DIRECT, STEP_BY_STEP, SELF_PROMPT, EXPERT_GROUP
+enum class TemperatureMode(val value: Double, val label: String) {
+    LOW(0.0, "Temperature 0"),
+    MEDIUM(0.7, "Temperature 0.7"),
+    HIGH(1.2, "Temperature 1.2")
 }
 
 class MainActivity : ComponentActivity() {
@@ -67,13 +70,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== UI COMPONENTS ==========
-
     @Composable
     private fun ChatScreen() {
         var inputText by remember { mutableStateOf(DEFAULT_TASK) }
         var isInputEnabled by remember { mutableStateOf(true) }
-        var selectedMode by remember { mutableStateOf(ReasoningMode.DIRECT) }
+        var selectedTemperature by remember { mutableStateOf(TemperatureMode.MEDIUM) }
         val messages = remember { mutableStateListOf<DeepSeekMessageDto>() }
         var streamingIndex by remember { mutableIntStateOf(-1) }
 
@@ -90,21 +91,21 @@ class MainActivity : ComponentActivity() {
                     enabled = isInputEnabled
                 )
 
-                ModeSelector(
-                    selectedMode = selectedMode,
-                    onModeSelect = { selectedMode = it }
+                TemperatureSelector(
+                    selectedMode = selectedTemperature,
+                    onModeSelect = { selectedTemperature = it }
                 )
 
                 SendButton(
                     enabled = isInputEnabled && inputText.isNotBlank(),
                     onClick = {
                         val currentText = inputText
-                        val currentMode = selectedMode
+                        val currentTemp = selectedTemperature
 
                         messages.add(
                             DeepSeekMessageDto(
                                 role = DeepSeekMessageDto.Role.USER,
-                                text = currentText
+                                text = "[${currentTemp.label}] $currentText"
                             )
                         )
 
@@ -119,9 +120,9 @@ class MainActivity : ComponentActivity() {
                         isInputEnabled = false
 
                         lifecycleScope.launch {
-                            sendRequest(
+                            sendRequestWithTemperature(
                                 text = currentText,
-                                mode = currentMode,
+                                temperature = currentTemp.value,
                                 assistantIndex = assistantIndex,
                                 onStreamingUpdate = { index, text ->
                                     messages[index] = DeepSeekMessageDto(
@@ -145,8 +146,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
-
-                        // НЕ СТИРАЕМ inputText — оставляем для следующих экспериментов
                     }
                 )
 
@@ -166,27 +165,30 @@ class MainActivity : ComponentActivity() {
                 .padding(16.dp),
             value = text,
             onValueChange = onTextChange,
-            placeholder = { Text("Введите задачу для решения...") },
+            placeholder = { Text("Введите запрос...") },
             minLines = 3,
             enabled = enabled
         )
     }
 
     @Composable
-    private fun ModeSelector(selectedMode: ReasoningMode, onModeSelect: (ReasoningMode) -> Unit) {
+    private fun TemperatureSelector(
+        selectedMode: TemperatureMode,
+        onModeSelect: (TemperatureMode) -> Unit
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            ReasoningMode.values().forEach { mode ->
+            TemperatureMode.values().forEach { mode ->
                 FilterChip(
                     selected = selectedMode == mode,
                     onClick = { onModeSelect(mode) },
                     label = {
                         Text(
-                            modeToLabel(mode),
+                            mode.label,
                             style = MaterialTheme.typography.labelSmall
                         )
                     },
@@ -256,13 +258,15 @@ class MainActivity : ComponentActivity() {
         ) {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth()  // ← убрали ограничение ширины
+                    .fillMaxWidth()
                     .animateContentSize(),
                 colors = CardDefaults.cardColors(containerColor = backgroundColor)
             ) {
                 Text(
                     text = getMessageText(message, isStreaming),
-                    modifier = Modifier.padding(12.dp)
+                    modifier = Modifier.padding(12.dp),
+                    softWrap = true,
+                    overflow = TextOverflow.Visible
                 )
             }
 
@@ -303,9 +307,9 @@ class MainActivity : ComponentActivity() {
 
     // ========== BUSINESS LOGIC ==========
 
-    private suspend fun sendRequest(
+    private suspend fun sendRequestWithTemperature(
         text: String,
-        mode: ReasoningMode,
+        temperature: Double,
         assistantIndex: Int,
         onStreamingUpdate: (Int, String) -> Unit,
         onComplete: () -> Unit,
@@ -313,13 +317,10 @@ class MainActivity : ComponentActivity() {
     ) {
         try {
             var fullResponse = ""
-            val systemPrompt = getSystemPrompt(mode, text)
 
-            repository.sendStreamingRequestWithControl(
+            repository.sendStreamingRequestWithTemperature(
                 text = text,
-                systemPrompt = systemPrompt,
-                maxTokens = null,
-                stopSequences = null,
+                temperature = temperature,
                 onChunk = { chunk ->
                     fullResponse += chunk
                     onStreamingUpdate(assistantIndex, fullResponse)
@@ -331,15 +332,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== HELPERS ==========
-
-    private fun modeToLabel(mode: ReasoningMode): String = when (mode) {
-        ReasoningMode.DIRECT -> "Прямой ответ"
-        ReasoningMode.STEP_BY_STEP -> "Пошагово"
-        ReasoningMode.SELF_PROMPT -> "Самопромпт"
-        ReasoningMode.EXPERT_GROUP -> "Эксперты"
-    }
-
     private fun getMessageText(message: DeepSeekMessageDto, isStreaming: Boolean): String {
         return when {
             message.text.isEmpty() && isStreaming -> "..."
@@ -348,68 +340,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun getSystemPrompt(mode: ReasoningMode, task: String): String? {
-        return when (mode) {
-            ReasoningMode.DIRECT -> null
-
-            ReasoningMode.STEP_BY_STEP -> """
-                Реши следующую задачу пошагово.
-                Объясняй каждый шаг подробно.
-                В конце дай финальный ответ.
-                
-                Задача: $task
-            """.trimIndent()
-
-            ReasoningMode.SELF_PROMPT -> """
-                Сначала составь подробный промпт (инструкцию) для решения этой задачи.
-                Промпт должен включать:
-                - анализ условия
-                - план решения
-                - возможные подводные камни
-                
-                Затем, используя этот промпт, реши задачу.
-                
-                Задача: $task
-            """.trimIndent()
-
-            ReasoningMode.EXPERT_GROUP -> """
-    Ты должен выступить в роли трех разных экспертов. Каждый эксперт должен самостоятельно и полностью решить задачу, не зависимо от других.
-    
-    Порядок работы:
-    
-    1. АНАЛИТИК: решает задачу полностью, используя логический и аналитический подход. Дает развернутое решение.
-    
-    2. ИНЖЕНЕР: решает эту же задачу полностью, но с практической, алгоритмической точки зрения. Описывает четкий алгоритм действий.
-    
-    3. КРИТИК: решает эту же задачу полностью, но проверяет каждое свое действие на ошибки и предлагает оптимальный путь.
-    
-    ВАЖНО: Каждый эксперт должен дать ПОЛНОЕ, САМОСТОЯТЕЛЬНОЕ решение задачи. Не ссылаться на решения других экспертов.
-    
-    Формат ответа:
-    
-    === АНАЛИТИК ===
-    [полное решение аналитика]
-    
-    === ИНЖЕНЕР ===
-    [полное решение инженера]
-    
-    === КРИТИК ===
-    [полное решение критика]
-    
-    Задача: $task
-""".trimIndent()
-        }
-    }
-
-    // ========== CONSTANTS ==========
-
     companion object {
-        private const val DEFAULT_TASK = "На острове живут рыцари (всегда говорят правду) и лжецы (всегда лгут). \n" +
-                "Ты встречаешь трех островитян: A, B, C.\n" +
-                "A говорит: \"B - лжец\"\n" +
-                "B говорит: \"C - лжец\"\n" +
-                "C говорит: \"A и B - лжецы\"\n" +
-                "\n" +
-                "Кто рыцарь, а кто лжец?"
+        private const val DEFAULT_TASK = "Придумай 5 идей для стартапа в сфере экологии. Для каждой идеи дай название и краткое описание."
     }
 }
