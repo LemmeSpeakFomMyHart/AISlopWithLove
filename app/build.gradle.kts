@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -38,7 +40,17 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+
+    val secrets = Properties()
+    val secretsFile = rootProject.file("secret.properties")
+    if (secretsFile.exists()) {
+        secrets.load(secretsFile.inputStream())
+    }
+
+    android.defaultConfig.buildConfigField("String", "OPENROUTER_API_KEY", "\"${secrets.getProperty("OPENROUTER_API_KEY")}\"")
+    android.defaultConfig.buildConfigField("String", "DEEPSEEK_API_KEY", "\"${secrets.getProperty("DEEPSEEK_API_KEY")}\"")
 }
 
 dependencies {

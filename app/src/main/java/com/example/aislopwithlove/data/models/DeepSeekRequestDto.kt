@@ -3,7 +3,7 @@ package com.example.aislopwithlove.data.models
 import com.google.gson.annotations.SerializedName
 
 data class DeepSeekRequestDto(
-    @SerializedName("model") val deepseekModelType: String = "deepseek-v4-flash",  // сменил, т.к. coder устарел
+    @SerializedName("model") val model: String = "deepseek-v4-flash",  // сменил, т.к. coder устарел
     @SerializedName("messages") val messages: List<DeepSeekMessageDto>,
     @SerializedName("stream") val stream: Boolean = false,
     @SerializedName("max_tokens") val maxTokens: Int? = null,

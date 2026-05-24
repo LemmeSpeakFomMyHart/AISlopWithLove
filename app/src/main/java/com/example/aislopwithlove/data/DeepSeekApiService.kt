@@ -8,7 +8,6 @@ import retrofit2.http.POST
 import retrofit2.http.Streaming
 
 interface DeepSeekApiService {
-
     @POST("chat/completions")
     suspend fun sendMessage(@Body request: DeepSeekRequestDto): DeepSeekResponseDto
 
