@@ -159,4 +159,67 @@ class Repository {
             .replace(Regex("[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F]"), "")
             .replace(Regex("(?<=[а-яА-Яa-zA-Z])[\\p{C}]+(?=[а-яА-Яa-zA-Z])"), "")
     }
+
+    // Добавь этот метод в Repository.kt
+
+    suspend fun sendStreamingRequestWithContext(
+        messages: List<DeepSeekMessageDto>,
+        modelName: String,
+        onChunk: (String) -> Unit,
+        onComplete: (TokenUsage?) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        withContext(Dispatchers.IO) {
+            try {
+                val (apiService, actualModelName) = getApiServiceAndModelName(modelName)
+
+                val request = DeepSeekRequestDto(
+                    model = actualModelName,
+                    messages = messages,
+                    stream = true,
+                    temperature = 0.7
+                )
+
+                val response = apiService.sendMessageAndGetStream(request)
+                val reader = BufferedReader(InputStreamReader(response.byteStream(), Charsets.UTF_8))
+                var line: String?
+                var finalUsage: TokenUsage? = null
+
+                while (reader.readLine().also { line = it } != null) {
+                    val currentLine = line ?: continue
+
+                    if (currentLine.isNotEmpty() && currentLine.startsWith("data: ")) {
+                        val jsonData = currentLine.removePrefix("data: ").trim()
+
+                        if (jsonData == "[DONE]") {
+                            withContext(Dispatchers.Main) { onComplete(finalUsage) }
+                            break
+                        }
+
+                        try {
+                            val responseDto = Gson().fromJson(jsonData, DeepSeekResponseDto::class.java)
+
+                            if (responseDto.usage != null) {
+                                finalUsage = responseDto.usage
+                            }
+
+                            val content = responseDto.choices.firstOrNull()?.message?.text
+
+                            if (!content.isNullOrEmpty()) {
+                                val cleanContent = cleanText(content)
+                                withContext(Dispatchers.Main) { onChunk(cleanContent) }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+                reader.close()
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Unknown error")
+                }
+            }
+        }
+    }
 }
