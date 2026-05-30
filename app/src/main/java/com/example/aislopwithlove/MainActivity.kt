@@ -1,12 +1,12 @@
 package com.example.aislopwithlove
 
 import android.os.Bundle
-import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,17 +49,20 @@ class MainActivity : ComponentActivity() {
 
     private val repository by lazy { Repository() }
 
-    // Создаём агента с V4-Flash
-    private val agent by lazy {
-        Agent(
-            repository = repository,
-            modelName = "deepseek-v4-flash"
-        )
-    }
+    private lateinit var agent: Agent
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Инициализируем агента с сохранением контекста
+        agent = Agent(
+            context = applicationContext,
+            repository = repository,
+            modelName = "deepseek-v4-flash",
+            systemPrompt = "Ты полезный ассистент. Отвечай кратко и по делу."
+        )
+
         setContent {
             AISlopWithLoveTheme {
                 ChatScreen()
@@ -67,16 +70,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // При закрытии приложения данные уже сохранены в БД
+    }
+
     @Composable
     private fun ChatScreen() {
         var inputText by remember { mutableStateOf("") }
         val agentState by agent.state.collectAsState()
-        val history = remember { mutableStateOf(agent.getHistory()) }
-
-        // Обновляем историю при изменении состояния агента
-        androidx.compose.runtime.LaunchedEffect(agentState) {
-            history.value = agent.getHistory()
-        }
+        val history by agent.history.collectAsState()  // Реактивная история
 
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
@@ -88,26 +91,31 @@ class MainActivity : ComponentActivity() {
             ) {
                 // Заголовок
                 Text(
-                    text = "День 6: Первый агент 🤖",
+                    text = "День 7: Агент с памятью 💾",
                     style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                Text(
+                    text = "Контекст сохраняется между запусками",
+                    style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Индикатор состояния агента
+                // Индикатор состояния
                 StatusIndicator(state = agentState)
 
-                // История сообщений
+                // История сообщений (фильтруем system)
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    items(history.value) { message ->
+                    items(history.filter { it.role != DeepSeekMessageDto.Role.SYSTEM }) { message ->
                         MessageItem(message = message)
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    // Если агент отвечает, показываем текущий ответ
                     if (agentState is AgentState.Responding) {
                         item {
                             MessageItem(
@@ -121,7 +129,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Поле ввода и кнопка отправки
+                // Поле ввода
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -146,18 +154,14 @@ class MainActivity : ComponentActivity() {
                                     agent.sendMessage(
                                         userMessage = userMessage,
                                         onChunk = { /* UI обновляется через state */ },
-                                        onComplete = { result ->
-                                            if (!result.success) {
-                                                // Можно показать ошибку
-                                            }
-                                        }
+                                        onComplete = { /* можно показать уведомление */ }
                                     )
                                 }
                             }
                         },
                         enabled = agentState !is AgentState.Thinking && agentState !is AgentState.Responding
                     ) {
-                        androidx.compose.foundation.layout.Box(
+                        Box(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
@@ -171,7 +175,11 @@ class MainActivity : ComponentActivity() {
 
                 // Кнопка очистки истории
                 Button(
-                    onClick = { agent.clearHistory() },
+                    onClick = {
+                        lifecycleScope.launch {
+                            agent.clearHistory()
+                        }
+                    },
                     modifier = Modifier.padding(top = 8.dp)
                 ) {
                     Text("Очистить историю")
@@ -208,6 +216,7 @@ class MainActivity : ComponentActivity() {
         val alignment = if (message.role == DeepSeekMessageDto.Role.USER) Alignment.End else Alignment.Start
         val backgroundColor = when (message.role) {
             DeepSeekMessageDto.Role.USER -> MaterialTheme.colorScheme.primaryContainer
+            DeepSeekMessageDto.Role.SYSTEM -> MaterialTheme.colorScheme.tertiaryContainer
             else -> MaterialTheme.colorScheme.secondaryContainer
         }
 
@@ -222,7 +231,7 @@ class MainActivity : ComponentActivity() {
                 colors = CardDefaults.cardColors(containerColor = backgroundColor)
             ) {
                 Text(
-                    text = message.text.ifEmpty { if (isStreaming) "..." else "Пустое сообщение" },
+                    text = if (message.text.isEmpty() && isStreaming) "..." else message.text,
                     modifier = Modifier.padding(12.dp),
                     softWrap = true,
                     overflow = TextOverflow.Visible
