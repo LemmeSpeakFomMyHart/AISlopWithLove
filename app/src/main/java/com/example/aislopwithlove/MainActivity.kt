@@ -48,18 +48,16 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val repository by lazy { Repository() }
-
     private lateinit var agent: Agent
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Инициализируем агента с сохранением контекста
         agent = Agent(
             context = applicationContext,
             repository = repository,
-            modelName = "deepseek-v4-flash",
+            modelName = "deepseek/deepseek-v3.2",  // ← 131K контекст
             systemPrompt = "Ты полезный ассистент. Отвечай кратко и по делу."
         )
 
@@ -70,16 +68,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // При закрытии приложения данные уже сохранены в БД
-    }
-
     @Composable
     private fun ChatScreen() {
         var inputText by remember { mutableStateOf("") }
         val agentState by agent.state.collectAsState()
-        val history by agent.history.collectAsState()  // Реактивная история
+        val history by agent.history.collectAsState()
+        val tokenStats by agent.tokenStats.collectAsState()
 
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
@@ -91,16 +85,31 @@ class MainActivity : ComponentActivity() {
             ) {
                 // Заголовок
                 Text(
-                    text = "День 7: Агент с памятью 💾",
+                    text = "День 8: Работа с токенами 🔢",
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
 
-                Text(
-                    text = "Контекст сохраняется между запусками",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                // Статистика токенов
+                tokenStats?.let { stats ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (stats.isNearLimit)
+                                MaterialTheme.colorScheme.errorContainer
+                            else
+                                MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Text(
+                            text = stats.format(),
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
 
                 // Индикатор состояния
                 StatusIndicator(state = agentState)
